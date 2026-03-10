@@ -1,0 +1,121 @@
+TCC-CLIMA - ARQUITETURA DO PROJETO
+
+1) Objetivo
+Construir um pipeline de dados climaticos orientado a camadas para coletar previsoes da Open-Meteo,
+armazenar bruto (Bronze), transformar (Silver/Gold) e disponibilizar dados prontos para dashboard.
+
+2) Fluxo de dados (visao macro)
+Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> Dashboard
+
+3) Camadas e responsabilidades
+
+3.1 API (Open-Meteo)
+- Fonte externa de dados meteorologicos horarios.
+- Parametros (URL, timezone, variaveis horarias, timeout) controlados por variaveis de ambiente.
+
+3.2 Ingestao Python (ETL)
+- Script principal: etl/ingest/open_meteo_ingest.py
+- Le cidades de OPEN_METEO_CITIES_JSON (multi-cidade).
+- Para cada cidade, chama API e grava payload bruto no Bronze.
+- Cliente API: etl/utils/api_client.py
+- Conexao DB: etl/utils/db_connection.py
+
+3.3 Bronze (dados brutos)
+- Tabela principal: public.bronze_climate_raw
+- Estrutura logica:
+  - id
+  - city
+  - raw_json
+  - created_at
+- Funcao: persistir payload bruto por cidade sem perda de detalhe.
+
+3.4 Silver (dados horarios tratados)
+- Modelo dbt: dbt/models/example/silver_climate_hourly.sql
+- Le o ultimo payload por cidade no Bronze.
+- Expande arrays horarios (time, temperature, humidity, precipitation).
+- Resultado por cidade e horario.
+
+3.5 Gold (dados agregados para consumo)
+- Modelo dbt: dbt/models/example/gold_daily_summary.sql
+- Agrega por city + day:
+  - avg_temp
+  - max_temp
+  - total_precipitation
+- Entrega dataset de negocio para comparacao entre cidades.
+
+3.6 Qualidade de dados
+- Testes dbt de not_null em city/day/record_time.
+- Teste de unicidade composta (city, record_time):
+  - dbt/tests/unique_silver_city_record_time.sql
+
+4) Orquestracao (Airflow)
+- DAG: airflow/dags/full_pipeline_open_meteo.py
+- Sequencia:
+  1. bronze_ingest
+  2. dbt_run
+  3. dbt_test
+- Execucao com ambiente UV local do container:
+  - /opt/airflow/.venv/bin/python
+  - /opt/airflow/.venv/bin/dbt
+- dbt target/log direcionados para /tmp para evitar problema de permissao em volume montado.
+
+5) Runtime e infraestrutura
+- Docker Compose: docker-compose.yml
+- Servicos:
+  - postgres (armazenamento)
+  - airflow (orquestracao)
+- Bootstrap UV do Airflow:
+  - Script: airflow/start_airflow.sh
+  - Instala/atualiza uv
+  - uv sync --frozen --no-dev --no-install-project
+  - sobe scheduler e webserver
+
+6) Gerenciamento de dependencias
+- pyproject.toml + uv.lock (fonte de verdade das dependencias).
+- Sem requirements.txt como mecanismo principal.
+
+7) Configuracao e seguranca
+- Variaveis em .env
+- Template sem segredos em .env.example
+- .env ignorado no git
+- Principais variaveis:
+  - DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS
+  - OPEN_METEO_BASE_URL
+  - OPEN_METEO_HOURLY_PARAMS
+  - OPEN_METEO_TIMEOUT_SECONDS
+  - OPEN_METEO_TIMEZONE
+  - OPEN_METEO_CITIES_JSON
+  - DBT_PROJECT_DIR
+
+8) Estrutura principal do repositorio
+- airflow/
+  - dags/full_pipeline_open_meteo.py
+  - start_airflow.sh
+- etl/
+  - ingest/open_meteo_ingest.py
+  - utils/api_client.py
+  - utils/db_connection.py
+- dbt/
+  - models/example/silver_climate_hourly.sql
+  - models/example/gold_daily_summary.sql
+  - tests/unique_silver_city_record_time.sql
+- init-db/
+  - 01_init_schemas.sql
+  - 02_init_bronze_table.sql
+  - 03_fix_permissions.sql
+- docker-compose.yml
+- pyproject.toml
+- uv.lock
+- .env.example
+
+9) Decisoes arquiteturais (por que)
+- Bronze com raw_json: preserva fonte original para reprocessamento.
+- Silver separado do Gold: desacopla tratamento tecnico de agregacao de negocio.
+- Airflow + dbt: orquestracao e transformacao com responsabilidades claras.
+- UV: reproducibilidade de ambiente e controle de dependencias.
+- Multi-cidade por configuracao: escala sem alterar codigo da DAG.
+
+10) Estado atual
+- Pipeline operacional com suporte a multiplas cidades.
+- Silver e Gold com coluna city.
+- DAG validada com tarefas bronze_ingest, dbt_run e dbt_test.

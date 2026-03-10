@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: silver_climate_hourly
+    description: "Camada Silver - dados transformados por hora e por cidade."
+    columns:
+      - name: city
+        tests:
+          - not_null
+      - name: record_time
+        tests:
+          - not_null
+
+  - name: gold_daily_summary
+    description: "Camada Gold - agregacao diaria por cidade."
+    columns:
+      - name: city
+        tests:
+          - not_null
+      - name: day
+        tests:
+          - not_null

@@ -1,0 +1,13 @@
+[project]
+name = "tcc-clima"
+version = "0.1.0"
+description = "Weather data pipeline for TCC project"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dbt-core>=1.11.6",
+    "dbt-postgres>=1.10.0",
+    "python-dotenv>=1.0.1",
+    "psycopg2-binary>=2.9.9",
+    "requests>=2.32.3",
+]

@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_tcc
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TIMEZONE}
+      PGTZ: ${TIMEZONE}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+
+  airflow:
+    image: apache/airflow:2.9.1-python3.10
+    container_name: airflow_tcc
+    restart: always
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TIMEZONE}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__WEBSERVER__RBAC: "true"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USERNAME}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      PYTHONPATH: ${PYTHONPATH}
+      PROJECT_ROOT_DIR: /opt/airflow
+      DBT_PROJECT_DIR: ${DBT_PROJECT_DIR}
+      UV_VENV_BIN: /opt/airflow/.venv/bin
+      DBT_TARGET_PATH: /tmp/dbt-target
+      DBT_LOG_PATH: /tmp/dbt-logs
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./etl:/opt/airflow/etl
+      - ./dbt:/opt/airflow/dbt
+      - ./pyproject.toml:/opt/airflow/pyproject.toml:ro
+      - ./uv.lock:/opt/airflow/uv.lock:ro
+      - ./airflow/start_airflow.sh:/opt/airflow/start_airflow.sh:ro
+      - ~/.dbt:/home/airflow/.dbt
+    ports:
+      - "8080:8080"
+    command: bash /opt/airflow/start_airflow.sh
+
+volumes:
+  pgdata:
+  airflow_logs:
