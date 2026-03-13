@@ -20,4 +20,5 @@ def get_connection():
         database=_require_env("DB_NAME"),
         user=_require_env("DB_USER"),
         password=_require_env("DB_PASS"),
+        options=f"-c timezone={_require_env('TIMEZONE')}",
     )

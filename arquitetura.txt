@@ -26,8 +26,9 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
   - id
   - city
   - raw_json
-  - created_at
-- Funcao: persistir payload bruto por cidade sem perda de detalhe.
+  - ingestion_time
+- created_at
+- Funcao: persistir payload bruto por cidade sem perda de detalhe, com timestamps de ingestao timezone-aware.
 
 3.4 Silver (dados horarios tratados)
 - Modelo dbt: dbt/models/example/silver_climate_hourly.sql
