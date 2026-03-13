@@ -68,8 +68,8 @@ tcc-clima/
 ## Camadas de dados
 
 - Bronze (`public.bronze_climate_raw`): payload JSON bruto por cidade.
-- Silver (`silver_climate_hourly`): dados horarios expandidos por `city` e `record_time`.
-- Gold (`gold_daily_summary`): agregacoes diarias por `city` e `day`.
+- Silver (`silver_climate_hourly`): dados horarios expandidos por `city` e `record_time`, incluindo insumos para ET0 e o valor horario de referencia.
+- Gold (`gold_daily_summary`): agregacoes diarias por `city` e `day`, incluindo ET0 diario.
 
 > Observacao: no `dbt_project.yml`, os modelos em `models/example/` estao como `materialized: view`.
 
@@ -101,6 +101,7 @@ Variaveis principais:
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`
 - `OPEN_METEO_BASE_URL`, `OPEN_METEO_HOURLY_PARAMS`, `OPEN_METEO_TIMEOUT_SECONDS`, `OPEN_METEO_TIMEZONE`
+  - recomendado para ET0: `temperature_2m,relative_humidity_2m,precipitation,dew_point_2m,shortwave_radiation,wind_speed_10m,vapour_pressure_deficit,et0_fao_evapotranspiration`
 - `OPEN_METEO_CITIES_JSON`
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`
@@ -167,7 +168,13 @@ order by 2 desc;
 Gold por cidade/dia:
 
 ```sql
-select city, day, avg_temp, max_temp, total_precipitation
+select
+  city,
+  day,
+  avg_temp,
+  max_temp,
+  total_precipitation,
+  total_et0_fao_evapotranspiration
 from gold_daily_summary
 order by day desc, city;
 ```
