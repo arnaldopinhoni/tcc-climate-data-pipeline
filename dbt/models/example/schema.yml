@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: silver_climate_hourly
-    description: "Camada Silver - dados transformados por hora e por cidade."
+    description: "Camada Silver - dados transformados por hora, por cidade, com insumos e ET0 de referencia."
     columns:
       - name: city
         tests:
@@ -10,9 +10,19 @@ models:
       - name: record_time
         tests:
           - not_null
+      - name: dew_point_2m
+        description: "Ponto de orvalho a 2 m em graus Celsius."
+      - name: shortwave_radiation
+        description: "Radiacao solar de onda curta horaria em W/m2."
+      - name: wind_speed_10m
+        description: "Velocidade do vento a 10 m em km/h."
+      - name: vapour_pressure_deficit
+        description: "Deficit de pressao de vapor horario em kPa."
+      - name: et0_fao_evapotranspiration
+        description: "Evapotranspiracao de referencia horaria calculada pela Open-Meteo com base em FAO-56."
 
   - name: gold_daily_summary
-    description: "Camada Gold - agregacao diaria por cidade."
+    description: "Camada Gold - agregacao diaria por cidade com metricas climaticas e ET0 de referencia."
     columns:
       - name: city
         tests:
@@ -20,3 +30,5 @@ models:
       - name: day
         tests:
           - not_null
+      - name: total_et0_fao_evapotranspiration
+        description: "Soma diaria da evapotranspiracao de referencia por cidade."
