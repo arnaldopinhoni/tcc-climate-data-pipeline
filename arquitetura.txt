@@ -2,10 +2,11 @@ TCC-CLIMA - ARQUITETURA DO PROJETO
 
 1) Objetivo
 Construir um pipeline de dados climaticos orientado a camadas para coletar previsoes da Open-Meteo,
-armazenar bruto (Bronze), transformar (Silver/Gold) e disponibilizar dados prontos para dashboard.
+armazenar bruto (Bronze), preservar historico por ingestao nas camadas analiticas e disponibilizar
+dados prontos para dashboard e analise.
 
 2) Fluxo de dados (visao macro)
-Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> Dashboard
+Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver History/Latest -> dbt Gold History/Latest -> Dashboard
 
 3) Camadas e responsabilidades
 
@@ -16,7 +17,7 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
 3.2 Ingestao Python (ETL)
 - Script principal: etl/ingest/open_meteo_ingest.py
 - Le cidades de OPEN_METEO_CITIES_JSON (multi-cidade).
-- Para cada cidade, chama API e grava payload bruto no Bronze.
+- Para cada cidade, chama a API e grava o payload bruto no Bronze.
 - Cliente API: etl/utils/api_client.py
 - Conexao DB: etl/utils/db_connection.py
 
@@ -27,27 +28,44 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
   - city
   - raw_json
   - ingestion_time
-- created_at
-- Funcao: persistir payload bruto por cidade sem perda de detalhe, com timestamps de ingestao timezone-aware.
+  - created_at
+- Funcao: persistir o payload bruto por cidade sem perda de detalhe, com timestamps timezone-aware.
 
 3.4 Silver (dados horarios tratados)
-- Modelo dbt: dbt/models/example/silver_climate_hourly.sql
-- Le o ultimo payload por cidade no Bronze.
-- Expande arrays horarios (time, temperature, humidity, precipitation).
-- Resultado por cidade e horario.
+- Modelos dbt:
+  - dbt/models/example/silver_climate_hourly_history.sql
+  - dbt/models/example/silver_climate_hourly.sql
+- Silver historico:
+  - expande todos os payloads do Bronze
+  - preserva bronze_record_id e ingestion_time
+  - gera uma serie horaria versionada por rodada de ingestao
+- Silver corrente:
+  - seleciona apenas a rodada mais recente por cidade
+  - mantem a interface simples para consumo atual e dashboard
 
 3.5 Gold (dados agregados para consumo)
-- Modelo dbt: dbt/models/example/gold_daily_summary.sql
-- Agrega por city + day:
+- Modelos dbt:
+  - dbt/models/example/gold_daily_summary_history.sql
+  - dbt/models/example/gold_daily_summary.sql
+- Gold historico:
+  - agrega por city + bronze_record_id + ingestion_time + day
+- Gold corrente:
+  - agrega a rodada mais recente por cidade
+- Metricas principais:
   - avg_temp
   - max_temp
   - total_precipitation
-- Entrega dataset de negocio para comparacao entre cidades.
+  - avg_dew_point_2m
+  - avg_shortwave_radiation
+  - avg_wind_speed_10m
+  - avg_vapour_pressure_deficit
+  - total_et0_fao_evapotranspiration
 
 3.6 Qualidade de dados
-- Testes dbt de not_null em city/day/record_time.
-- Teste de unicidade composta (city, record_time):
+- Testes dbt de not_null em city/day/record_time e nos campos de rastreabilidade ingestion_time/bronze_record_id.
+- Testes de unicidade composta:
   - dbt/tests/unique_silver_city_record_time.sql
+  - dbt/tests/unique_silver_history_bronze_record_time.sql
 
 4) Orquestracao (Airflow)
 - DAG: airflow/dags/full_pipeline_open_meteo.py
@@ -67,13 +85,11 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
   - airflow (orquestracao)
 - Bootstrap UV do Airflow:
   - Script: airflow/start_airflow.sh
-  - Instala/atualiza uv
   - uv sync --frozen --no-dev --no-install-project
   - sobe scheduler e webserver
 
 6) Gerenciamento de dependencias
 - pyproject.toml + uv.lock (fonte de verdade das dependencias).
-- Sem requirements.txt como mecanismo principal.
 
 7) Configuracao e seguranca
 - Variaveis em .env
@@ -97,9 +113,12 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
   - utils/api_client.py
   - utils/db_connection.py
 - dbt/
+  - models/example/silver_climate_hourly_history.sql
   - models/example/silver_climate_hourly.sql
+  - models/example/gold_daily_summary_history.sql
   - models/example/gold_daily_summary.sql
   - tests/unique_silver_city_record_time.sql
+  - tests/unique_silver_history_bronze_record_time.sql
 - init-db/
   - 01_init_schemas.sql
   - 02_init_bronze_table.sql
@@ -110,13 +129,13 @@ Open-Meteo API -> Ingestao Python -> Bronze (raw) -> dbt Silver -> dbt Gold -> D
 - .env.example
 
 9) Decisoes arquiteturais (por que)
-- Bronze com raw_json: preserva fonte original para reprocessamento.
-- Silver separado do Gold: desacopla tratamento tecnico de agregacao de negocio.
+- Bronze com raw_json: preserva a fonte original para auditoria e reprocessamento.
+- Silver/Gold com versao historica e versao corrente: permite rastreabilidade por ingestion_time sem perder simplicidade no consumo atual.
 - Airflow + dbt: orquestracao e transformacao com responsabilidades claras.
 - UV: reproducibilidade de ambiente e controle de dependencias.
 - Multi-cidade por configuracao: escala sem alterar codigo da DAG.
 
 10) Estado atual
 - Pipeline operacional com suporte a multiplas cidades.
-- Silver e Gold com coluna city.
+- Silver e Gold com suporte a historico por ingestion_time e views correntes derivadas do historico.
 - DAG validada com tarefas bronze_ingest, dbt_run e dbt_test.

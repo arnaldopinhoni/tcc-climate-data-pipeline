@@ -1,8 +1,8 @@
-﻿# TCC Clima - Weather Data Pipeline
+# TCC Clima - Weather Data Pipeline
 
 Pipeline de Engenharia de Dados para TCC com arquitetura em camadas:
 
-`Open-Meteo API -> Ingestao Python -> Bronze -> dbt (Silver/Gold) -> Dashboard`
+`Open-Meteo API -> Ingestao Python -> Bronze -> dbt (Silver History/Latest -> Gold History/Latest) -> Dashboard`
 
 ![Python](https://img.shields.io/badge/python-3.10-blue)
 ![Airflow](https://img.shields.io/badge/airflow-2.9.1-017CEE)
@@ -12,7 +12,7 @@ Pipeline de Engenharia de Dados para TCC com arquitetura em camadas:
 
 ## Visao geral
 
-Este repositorio implementa um pipeline ELT de dados climaticos horarios usando Open-Meteo como fonte, PostgreSQL como armazenamento, dbt para transformacoes e Apache Airflow para orquestracao.
+Este repositorio implementa um pipeline ELT de previsoes meteorologicas horarias usando Open-Meteo como fonte, PostgreSQL como armazenamento, dbt para transformacoes e Apache Airflow para orquestracao. A modelagem preserva o historico por ingestion_time e tambem mantem views correntes com o recorte mais recente por cidade.
 
 O projeto esta preparado para **multiplas cidades** via configuracao (`OPEN_METEO_CITIES_JSON`) sem alterar codigo da DAG.
 
@@ -22,9 +22,11 @@ O projeto esta preparado para **multiplas cidades** via configuracao (`OPEN_METE
 flowchart LR
     A["Open-Meteo API"] --> B["Python Ingestion (etl/ingest/open_meteo_ingest.py)"]
     B --> C["Bronze (public.bronze_climate_raw)"]
-    C --> D["dbt Silver (silver_climate_hourly)"]
-    D --> E["dbt Gold (gold_daily_summary)"]
-    E --> F["Dashboard / BI"]
+    C --> D["dbt Silver History (silver_climate_hourly_history)"]
+    D --> E["dbt Gold History (gold_daily_summary_history)"]
+    D --> F["dbt Silver Latest (silver_climate_hourly)"]
+    F --> G["dbt Gold Latest (gold_daily_summary)"]
+    G --> H["Dashboard / BI"]
 ```
 
 ## Stack
@@ -50,10 +52,13 @@ tcc-clima/
 |-- dbt/
 |   |-- dbt_project.yml
 |   |-- models/example/
+|   |   |-- silver_climate_hourly_history.sql
 |   |   |-- silver_climate_hourly.sql
+|   |   |-- gold_daily_summary_history.sql
 |   |   |-- gold_daily_summary.sql
 |   |   `-- schema.yml
-|   `-- tests/unique_silver_city_record_time.sql
+|   |-- tests/unique_silver_city_record_time.sql
+|   `-- tests/unique_silver_history_bronze_record_time.sql
 |-- init-db/
 |   |-- 01_init_schemas.sql
 |   |-- 02_init_bronze_table.sql
@@ -67,9 +72,11 @@ tcc-clima/
 
 ## Camadas de dados
 
-- Bronze (`public.bronze_climate_raw`): payload JSON bruto por cidade.
-- Silver (`silver_climate_hourly`): dados horarios expandidos por `city` e `record_time`, incluindo insumos para ET0 e o valor horario de referencia.
-- Gold (`gold_daily_summary`): agregacoes diarias por `city` e `day`, incluindo ET0 diario.
+- Bronze (`public.bronze_climate_raw`): payload JSON bruto por cidade, com `ingestion_time` preservado.
+- Silver historico (`silver_climate_hourly_history`): dados horarios expandidos para cada rodada de ingestao, com rastreabilidade por `bronze_record_id` e `ingestion_time`.
+- Silver corrente (`silver_climate_hourly`): recorte da rodada mais recente por cidade.
+- Gold historico (`gold_daily_summary_history`): agregacoes diarias por cidade e por rodada de ingestao.
+- Gold corrente (`gold_daily_summary`): agregacoes diarias da rodada mais recente por cidade.
 
 > Observacao: no `dbt_project.yml`, os modelos em `models/example/` estao como `materialized: view`.
 
@@ -165,25 +172,36 @@ group by 1
 order by 2 desc;
 ```
 
-Gold por cidade/dia:
+Historico de ingestoes por cidade:
+
+```sql
+select city, count(distinct bronze_record_id) as ingestoes
+from silver_climate_hourly_history
+group by 1
+order by 2 desc, 1;
+```
+
+Gold corrente por cidade/dia:
 
 ```sql
 select
   city,
+  ingestion_time,
   day,
   avg_temp,
   max_temp,
   total_precipitation,
   total_et0_fao_evapotranspiration
 from gold_daily_summary
-order by day desc, city;
+order by ingestion_time desc, day desc, city;
 ```
 
 ## Qualidade de dados (dbt tests)
 
-- `not_null` em colunas criticas (`city`, `day`, `record_time`)
-- teste customizado de unicidade composta:
+- `not_null` em colunas criticas de historico e corrente (`city`, `day`, `record_time`, `ingestion_time`, `bronze_record_id`)
+- testes customizados de unicidade composta:
   - `dbt/tests/unique_silver_city_record_time.sql`
+  - `dbt/tests/unique_silver_history_bronze_record_time.sql`
 
 ## GitHub-friendly e reproducibilidade
 

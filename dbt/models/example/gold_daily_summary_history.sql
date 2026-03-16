@@ -11,6 +11,6 @@ select
     avg(wind_speed_10m) as avg_wind_speed_10m,
     avg(vapour_pressure_deficit) as avg_vapour_pressure_deficit,
     sum(et0_fao_evapotranspiration) as total_et0_fao_evapotranspiration
-from {{ ref('silver_climate_hourly') }}
+from {{ ref('silver_climate_hourly_history') }}
 group by 1, 2, 3, 4
 order by 3 desc, 4 desc, 1
