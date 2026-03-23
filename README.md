@@ -10,6 +10,12 @@ Pipeline de Engenharia de Dados para TCC com arquitetura em camadas:
 ![uv](https://img.shields.io/badge/dependencies-uv-green)
 ![Postgres](https://img.shields.io/badge/postgres-15-336791)
 
+## Dashboard
+
+**[tcc-climate-data-pipeline.streamlit.app](https://tcc-climate-data-pipeline.streamlit.app/)**
+
+Monitoramento de temperatura, precipitacao e ET0 FAO-56 para 5 cidades do interior paulista.
+
 ## Visao geral
 
 Este repositorio implementa um pipeline ELT de previsoes meteorologicas horarias usando Open-Meteo como fonte, PostgreSQL como armazenamento, dbt para transformacoes e Apache Airflow para orquestracao. A modelagem preserva o historico por ingestion_time e tambem mantem views correntes com o recorte mais recente por cidade.
