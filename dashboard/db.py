@@ -29,6 +29,5 @@ def _get_params() -> dict:
         )
 
 
-@st.cache_resource
 def get_conn():
     return psycopg2.connect(**_get_params())
