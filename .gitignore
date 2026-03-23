@@ -32,6 +32,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Streamlit secrets
+.streamlit/secrets.toml
+
 # Claude Code
 .claude/
 CLAUDE.md
