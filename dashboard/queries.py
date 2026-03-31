@@ -12,11 +12,13 @@ CITY_NAMES = {
 }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_gold(start_date, end_date, cities: tuple) -> pd.DataFrame:
     sql = """
         SELECT city, day, avg_temp, max_temp,
-               total_precipitation, total_et0_fao_evapotranspiration
+               total_precipitation, total_et0_fao_evapotranspiration,
+               avg_dew_point_2m, avg_shortwave_radiation,
+               avg_wind_speed_10m, avg_vapour_pressure_deficit
         FROM gold_daily_summary
         WHERE day BETWEEN %(start)s AND %(end)s
           AND city = ANY(%(cities)s)
@@ -28,7 +30,7 @@ def load_gold(start_date, end_date, cities: tuple) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_hourly(day, cities: tuple) -> pd.DataFrame:
     sql = """
         SELECT record_time, city, temperature_2m,
@@ -43,7 +45,7 @@ def load_hourly(day, cities: tuple) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def last_ingestion() -> str:
     conn = get_conn()
     with conn.cursor() as cur:
