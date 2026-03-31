@@ -55,6 +55,21 @@ st.markdown(
         [data-testid="stSidebar"] button[kind="secondary"] {
             color: #2e241d !important;
         }
+        [data-testid="stSidebar"] .stButton > button {
+            background: linear-gradient(135deg, #d49a28, #c84c31) !important;
+            color: #fffdf8 !important;
+            border: none !important;
+            box-shadow: 0 10px 24px rgba(62, 45, 35, 0.18);
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: linear-gradient(135deg, #bb861f, #b34128) !important;
+            color: #fffdf8 !important;
+        }
+        [data-testid="stSidebar"] .stButton > button:disabled {
+            background: #d8cfc0 !important;
+            color: #6f6359 !important;
+            opacity: 1 !important;
+        }
         .hero {
             padding: 1.5rem 1.6rem;
             border: 1px solid rgba(62, 45, 35, 0.08);
