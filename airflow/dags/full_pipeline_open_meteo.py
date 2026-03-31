@@ -12,6 +12,7 @@ PROJECT_ROOT_DIR = os.getenv("PROJECT_ROOT_DIR", "/opt/airflow")
 UV_VENV_BIN = os.getenv("UV_VENV_BIN", "/opt/airflow/.venv/bin")
 DBT_TARGET_PATH = os.getenv("DBT_TARGET_PATH", "/tmp/dbt-target")
 DBT_LOG_PATH = os.getenv("DBT_LOG_PATH", "/tmp/dbt-logs")
+NEON_SYNC_ENABLED = bool(os.getenv("NEON_DB_HOST"))
 
 
 default_args = {
@@ -59,3 +60,14 @@ with DAG(
     )
 
     bronze_ingest >> dbt_run >> dbt_test
+
+    if NEON_SYNC_ENABLED:
+        sync_neon = BashOperator(
+            task_id="sync_neon",
+            bash_command=(
+                f"cd {PROJECT_ROOT_DIR} && "
+                f"{UV_VENV_BIN}/python -m etl.sync.sync_to_neon"
+            ),
+        )
+
+        dbt_test >> sync_neon

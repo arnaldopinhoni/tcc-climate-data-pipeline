@@ -113,6 +113,7 @@ Exemplo:
 Variaveis principais:
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`
+- `NEON_DB_HOST`, `NEON_DB_PORT`, `NEON_DB_NAME`, `NEON_DB_USER`, `NEON_DB_PASS`
 - `OPEN_METEO_BASE_URL`, `OPEN_METEO_HOURLY_PARAMS`, `OPEN_METEO_TIMEOUT_SECONDS`, `OPEN_METEO_TIMEZONE`
   - recomendado para ET0: `temperature_2m,relative_humidity_2m,precipitation,dew_point_2m,shortwave_radiation,wind_speed_10m,vapour_pressure_deficit,et0_fao_evapotranspiration`
 - `OPEN_METEO_CITIES_JSON`
@@ -143,8 +144,26 @@ Acesse Airflow:
 DAG principal:
 
 - `full_pipeline_open_meteo`
-- Ordem das tasks: `bronze_ingest -> dbt_run -> dbt_test`
+- Ordem das tasks: `bronze_ingest -> dbt_run -> dbt_test -> sync_neon` (quando `NEON_DB_HOST` estiver configurado)
 - Agendamento: `@daily`
+
+## Sincronizacao automatica com Neon
+
+Se o seu pipeline principal grava primeiro no PostgreSQL local, voce pode manter o Neon como copia atualizada para o dashboard.
+
+Quando as variaveis `NEON_DB_*` estiverem configuradas no ambiente do Airflow, a DAG executa automaticamente o job `sync_neon` ao final do pipeline diario. Esse job copia para o Neon as tabelas/visoes usadas no projeto:
+
+- `public.bronze_climate_raw`
+- `public.silver_climate_hourly_history`
+- `public.silver_climate_hourly`
+- `public.gold_daily_summary_history`
+- `public.gold_daily_summary`
+
+Fluxo final:
+
+```text
+Postgres local -> ingestao Python -> dbt -> sync_neon -> Neon -> Streamlit
+```
 
 ## Execucao local sem Airflow (opcional)
 
