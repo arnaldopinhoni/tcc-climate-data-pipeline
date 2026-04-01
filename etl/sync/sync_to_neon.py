@@ -3,7 +3,7 @@ from typing import Iterable
 
 import psycopg2
 from psycopg2 import sql
-from psycopg2.extras import execute_values
+from psycopg2.extras import Json, execute_values
 
 from etl.utils.db_connection import get_connection as get_source_connection
 
@@ -140,38 +140,69 @@ def _copy_rows(source_conn, target_conn, schema_name: str, source_table_name: st
             rows = source_cur.fetchmany(1000)
             if not rows:
                 break
+            normalized_rows = [
+                tuple(Json(value) if isinstance(value, (dict, list)) else value for value in row)
+                for row in rows
+            ]
             with target_conn:
                 with target_conn.cursor() as target_cur:
-                    execute_values(target_cur, insert_query.as_string(target_conn), rows, page_size=1000)
+                    execute_values(target_cur, insert_query.as_string(target_conn), normalized_rows, page_size=1000)
             total_rows += len(rows)
 
     return total_rows
 
 
 def _swap_tables(target_conn, schema_name: str, table_name: str, shadow_name: str) -> None:
-    statements = [
-        sql.SQL("DROP VIEW IF EXISTS {schema}.{table} CASCADE").format(
-            schema=sql.Identifier(schema_name),
-            table=sql.Identifier(table_name),
-        ),
-        sql.SQL("DROP MATERIALIZED VIEW IF EXISTS {schema}.{table} CASCADE").format(
-            schema=sql.Identifier(schema_name),
-            table=sql.Identifier(table_name),
-        ),
-        sql.SQL("DROP TABLE IF EXISTS {schema}.{table} CASCADE").format(
-            schema=sql.Identifier(schema_name),
-            table=sql.Identifier(table_name),
-        ),
-        sql.SQL("ALTER TABLE {schema}.{shadow} RENAME TO {table}").format(
-            schema=sql.Identifier(schema_name),
-            shadow=sql.Identifier(shadow_name),
-            table=sql.Identifier(table_name),
-        ),
-    ]
+    relkind_query = """
+        SELECT c.relkind
+        FROM pg_class AS c
+        INNER JOIN pg_namespace AS n
+            ON c.relnamespace = n.oid
+        WHERE n.nspname = %s
+          AND c.relname = %s
+        LIMIT 1
+    """
+
     with target_conn:
         with target_conn.cursor() as cur:
-            for statement in statements:
-                cur.execute(statement)
+            cur.execute(relkind_query, (schema_name, table_name))
+            row = cur.fetchone()
+
+            if row:
+                relkind = row[0]
+                if relkind == "r":
+                    cur.execute(
+                        sql.SQL("DROP TABLE {schema}.{table} CASCADE").format(
+                            schema=sql.Identifier(schema_name),
+                            table=sql.Identifier(table_name),
+                        )
+                    )
+                elif relkind == "v":
+                    cur.execute(
+                        sql.SQL("DROP VIEW {schema}.{table} CASCADE").format(
+                            schema=sql.Identifier(schema_name),
+                            table=sql.Identifier(table_name),
+                        )
+                    )
+                elif relkind == "m":
+                    cur.execute(
+                        sql.SQL("DROP MATERIALIZED VIEW {schema}.{table} CASCADE").format(
+                            schema=sql.Identifier(schema_name),
+                            table=sql.Identifier(table_name),
+                        )
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported relation type '{relkind}' for {schema_name}.{table_name}"
+                    )
+
+            cur.execute(
+                sql.SQL("ALTER TABLE {schema}.{shadow} RENAME TO {table}").format(
+                    schema=sql.Identifier(schema_name),
+                    shadow=sql.Identifier(shadow_name),
+                    table=sql.Identifier(table_name),
+                )
+            )
 
 
 def sync_to_neon() -> None:
