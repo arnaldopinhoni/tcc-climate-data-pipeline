@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:15
     container_name: postgres_tcc
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -20,7 +20,7 @@ services:
   airflow:
     image: apache/airflow:2.9.1-python3.10
     container_name: airflow_tcc
-    restart: always
+    restart: unless-stopped
     depends_on:
       - postgres
     env_file:
