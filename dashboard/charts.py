@@ -20,6 +20,33 @@ def _color(city_label: str) -> str:
     return COLORS.get(city_label, "#7F7F7F")
 
 
+def _add_today_line(fig: go.Figure, today=None) -> None:
+    """Marca o dia atual, separando visualmente o observado da previsão."""
+    if today is None:
+        return
+    x = pd.Timestamp(today)
+    fig.add_shape(
+        type="line",
+        x0=x,
+        x1=x,
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        line=dict(color="rgba(62, 45, 35, 0.45)", dash="dash"),
+    )
+    fig.add_annotation(
+        x=x,
+        y=1,
+        xref="x",
+        yref="paper",
+        yanchor="bottom",
+        text="hoje",
+        showarrow=False,
+        font=dict(size=11, color="rgba(62, 45, 35, 0.7)"),
+    )
+
+
 def _apply_layout(fig: go.Figure, *, xaxis_title: str, yaxis_title: str, hovermode: str = "x unified") -> go.Figure:
     fig.update_layout(
         paper_bgcolor=PANEL_COLOR,
@@ -36,7 +63,7 @@ def _apply_layout(fig: go.Figure, *, xaxis_title: str, yaxis_title: str, hovermo
     return fig
 
 
-def plot_temperature(df: pd.DataFrame) -> go.Figure:
+def plot_temperature(df: pd.DataFrame, today=None) -> go.Figure:
     fig = go.Figure()
     for city in df["city_label"].unique():
         city_df = df[df["city_label"] == city].sort_values("day")
@@ -62,10 +89,11 @@ def plot_temperature(df: pd.DataFrame) -> go.Figure:
                 marker=dict(size=8),
             )
         )
+    _add_today_line(fig, today)
     return _apply_layout(fig, xaxis_title="Data", yaxis_title="Temperatura (°C)")
 
 
-def plot_precipitation(df: pd.DataFrame) -> go.Figure:
+def plot_precipitation(df: pd.DataFrame, today=None) -> go.Figure:
     fig = go.Figure()
     for city in df["city_label"].unique():
         city_df = df[df["city_label"] == city].sort_values("day")
@@ -79,10 +107,11 @@ def plot_precipitation(df: pd.DataFrame) -> go.Figure:
             )
         )
     fig.update_layout(barmode="group")
+    _add_today_line(fig, today)
     return _apply_layout(fig, xaxis_title="Data", yaxis_title="Precipitação (mm)")
 
 
-def plot_et0(df: pd.DataFrame) -> go.Figure:
+def plot_et0(df: pd.DataFrame, today=None) -> go.Figure:
     fig = go.Figure()
     for city in df["city_label"].unique():
         city_df = df[df["city_label"] == city].sort_values("day")
@@ -95,6 +124,7 @@ def plot_et0(df: pd.DataFrame) -> go.Figure:
                 opacity=0.88,
             )
         )
+    _add_today_line(fig, today)
     fig.add_hline(
         y=5,
         line_dash="dash",

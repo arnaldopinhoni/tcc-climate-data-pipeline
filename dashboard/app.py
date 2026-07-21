@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dashboard.charts import plot_city_comparison, plot_daily_table, plot_et0, plot_hourly, plot_precipitation, plot_temperature
-from dashboard.queries import CITY_NAMES, last_ingestion, load_gold, load_hourly
+from dashboard.queries import CITY_NAMES, forecast_range, last_ingestion, load_gold, load_hourly
 
 st.set_page_config(
     page_title="Painel Climático do Interior Paulista",
@@ -146,7 +146,7 @@ st.markdown(
     f"""
     <div class="hero">
         <h1>Painel Climático do Interior Paulista</h1>
-        <p>Monitore temperatura, precipitação, ET₀ e condições horárias nas cidades acompanhadas pelo pipeline.</p>
+        <p>Acompanhe a previsão de temperatura, precipitação e ET₀ dos próximos dias nas cidades monitoradas pelo pipeline.</p>
         <p><strong>Última ingestão:</strong> {last_ingestion()}</p>
         <p>O dashboard revalida o cache automaticamente a cada 60 segundos.</p>
     </div>
@@ -166,11 +166,22 @@ with st.sidebar:
     )
 
     hoje = date.today()
+    fc_min, fc_max = forecast_range()
+
+    # Ancora o filtro no horizonte de previsão disponível (última rodada),
+    # e não nos últimos 7 dias passados. É isso que exibe as previsões futuras.
+    if fc_min and fc_max:
+        default_inicio, default_fim = fc_min, fc_max
+        limite_max = fc_max
+    else:
+        default_inicio, default_fim = hoje - timedelta(days=6), hoje
+        limite_max = hoje
+
     data_inicio, data_fim = st.date_input(
         "Período",
-        value=(hoje - timedelta(days=6), hoje),
+        value=(default_inicio, default_fim),
         min_value=date(2020, 1, 1),
-        max_value=hoje,
+        max_value=limite_max,
     )
 
     metrica_comparativa = st.selectbox(
@@ -222,17 +233,24 @@ metric_meta = {
 }
 
 overall_cols = st.columns(4)
-overall_cols[0].metric("Temperatura média do último dia", format_number(overview_df["avg_temp"].mean(), "°C"))
+overall_cols[0].metric(f"Temp. média prevista ({latest_day.strftime('%d/%m')})", format_number(overview_df["avg_temp"].mean(), "°C"))
 overall_cols[1].metric("Precipitação acumulada no período", format_number(df["total_precipitation"].sum(), "mm"))
-overall_cols[2].metric("ET₀ média no último dia", format_number(overview_df["total_et0_fao_evapotranspiration"].mean(), "mm/dia"))
+overall_cols[2].metric(f"ET₀ média prevista ({latest_day.strftime('%d/%m')})", format_number(overview_df["total_et0_fao_evapotranspiration"].mean(), "mm/dia"))
 overall_cols[3].metric("Vento médio no período", format_number(df["avg_wind_speed_10m"].mean(), "km/h"))
+
+dias_futuros = int(df[df["day"] > hoje]["day"].nunique())
+horizonte_txt = (
+    f"Inclui <strong>{dias_futuros}</strong> {'dia' if dias_futuros == 1 else 'dias'} de previsão futura (após {hoje.strftime('%d/%m/%Y')})."
+    if dias_futuros > 0
+    else "A seleção atual cobre apenas dias já passados; amplie o período para incluir a previsão."
+)
 
 st.markdown(
     f"""
     <div class="section-note">
-        O recorte atual cobre <strong>{len(cidades_selecionadas)}</strong> cidades entre
-        <strong>{data_inicio.strftime("%d/%m/%Y")}</strong> e <strong>{data_fim.strftime("%d/%m/%Y")}</strong>.
-        O último dia disponível na seleção é <strong>{latest_day.strftime("%d/%m/%Y")}</strong>.
+        O recorte cobre <strong>{len(cidades_selecionadas)}</strong> cidades, de
+        <strong>{data_inicio.strftime("%d/%m/%Y")}</strong> a <strong>{data_fim.strftime("%d/%m/%Y")}</strong>,
+        exibindo sempre a previsão mais recente para cada dia. {horizonte_txt}
     </div>
     """,
     unsafe_allow_html=True,
@@ -244,7 +262,7 @@ with tab_overview:
     col_temp, col_rank = st.columns([1.6, 1])
     with col_temp:
         st.subheader("Evolução diária da temperatura")
-        st.plotly_chart(plot_temperature(df), use_container_width=True)
+        st.plotly_chart(plot_temperature(df, today=hoje), use_container_width=True)
     with col_rank:
         metric_column, metric_label = metrica_comparativa
         title, suffix = metric_meta[metric_column]
@@ -257,10 +275,10 @@ with tab_overview:
     col_rain, col_et0 = st.columns(2)
     with col_rain:
         st.subheader("Precipitação diária")
-        st.plotly_chart(plot_precipitation(df), use_container_width=True)
+        st.plotly_chart(plot_precipitation(df, today=hoje), use_container_width=True)
     with col_et0:
         st.subheader("ET₀ diária")
-        st.plotly_chart(plot_et0(df), use_container_width=True)
+        st.plotly_chart(plot_et0(df, today=hoje), use_container_width=True)
 
     st.caption(
         "ET₀ representa a evapotranspiração de referência FAO-56. "

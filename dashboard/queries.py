@@ -55,3 +55,19 @@ def last_ingestion() -> str:
         cur.execute("SELECT MAX(ingestion_time) FROM gold_daily_summary")
         val = cur.fetchone()[0]
     return val.strftime("%d/%m/%Y %H:%M") if val else "—"
+
+
+@st.cache_data(ttl=60)
+def forecast_range():
+    """Primeiro e último dia previstos pela rodada mais recente (gold corrente).
+
+    É esse intervalo que representa o horizonte de previsão disponível, e não
+    o passado — por isso ancora os filtros do painel.
+    """
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT MIN(day), MAX(day) FROM gold_daily_summary")
+        row = cur.fetchone()
+    if row and row[0]:
+        return row[0], row[1]
+    return None, None
