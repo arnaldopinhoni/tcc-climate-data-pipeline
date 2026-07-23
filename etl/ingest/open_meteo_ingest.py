@@ -53,8 +53,24 @@ def ingest_to_bronze() -> None:
         VALUES (%s, %s)
     """
 
+    # Trava de ingestao diaria: evita coletas duplicadas para a mesma cidade no
+    # mesmo dia (re-execucoes manuais, retries). date(ingestion_time) e CURRENT_DATE
+    # usam o timezone da sessao (America/Sao_Paulo, definido em get_connection).
+    already_ingested_sql = """
+        SELECT 1
+        FROM bronze_climate_raw
+        WHERE city = %s
+          AND date(ingestion_time) = CURRENT_DATE
+        LIMIT 1
+    """
+
     try:
         for city, coords in cities.items():
+            cur.execute(already_ingested_sql, (city,))
+            if cur.fetchone():
+                print(f"- {city}: ja existe ingestao hoje, pulando")
+                continue
+
             print(f"- Coletando cidade: {city}")
             raw_json = get_open_meteo(lat=coords["lat"], lon=coords["lon"])
             cur.execute(insert_sql, (city, json.dumps(raw_json)))
