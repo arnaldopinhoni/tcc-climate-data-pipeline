@@ -5,6 +5,7 @@ select
     date(record_time) as day,
     avg(temperature_2m) as avg_temp,
     max(temperature_2m) as max_temp,
+    min(temperature_2m) as min_temp,
     sum(precipitation) as total_precipitation,
     avg(dew_point_2m) as avg_dew_point_2m,
     avg(shortwave_radiation) as avg_shortwave_radiation,
