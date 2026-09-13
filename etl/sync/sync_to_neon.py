@@ -11,8 +11,10 @@ TABLES_TO_SYNC = (
     ("public", "bronze_climate_raw"),
     ("public", "silver_climate_hourly_history"),
     ("public", "silver_climate_hourly"),
+    ("public", "silver_climate_hourly_dedup"),
     ("public", "gold_daily_summary_history"),
     ("public", "gold_daily_summary"),
+    ("public", "gold_daily_summary_dedup"),
 )
 
 

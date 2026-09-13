@@ -1,5 +1,8 @@
-streamlit>=1.35.0
+# Usado apenas pelo Streamlit Cloud, que le requirements.txt e nao pyproject.toml.
+# Os pisos de versao devem acompanhar os de pyproject.toml, a fonte de verdade do
+# ambiente local e do container do Airflow.
+streamlit>=1.55.0
 psycopg2-binary>=2.9.9
 pandas>=2.0.0
-plotly>=5.20.0
+plotly>=6.6.0
 python-dotenv>=1.0.1

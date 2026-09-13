@@ -31,8 +31,12 @@ flowchart LR
     C --> D["dbt Silver History (silver_climate_hourly_history)"]
     D --> E["dbt Gold History (gold_daily_summary_history)"]
     D --> F["dbt Silver Latest (silver_climate_hourly)"]
+    D --> I["dbt Silver Dedup (silver_climate_hourly_dedup)"]
     F --> G["dbt Gold Latest (gold_daily_summary)"]
+    E --> J["dbt Gold Dedup (gold_daily_summary_dedup)"]
     G --> H["Dashboard / BI"]
+    J --> K["Analise meteorologica e validacao"]
+    E --> L["Analise de divergencia entre rodadas"]
 ```
 
 ## Stack
@@ -52,26 +56,46 @@ tcc-clima/
 |   `-- start_airflow.sh
 |-- etl/
 |   |-- ingest/open_meteo_ingest.py
+|   |-- sync/sync_to_neon.py
+|   |-- metrics/airflow_metrics.py
+|   |-- validation/validate_against_era5.py
 |   `-- utils/
 |       |-- api_client.py
 |       `-- db_connection.py
+|-- dashboard/
+|   |-- app.py
+|   |-- queries.py
+|   |-- charts.py
+|   `-- db.py
 |-- dbt/
 |   |-- dbt_project.yml
+|   |-- packages.yml
+|   |-- profiles.yml.example
+|   |-- macros/janela_estudo.sql
 |   |-- models/example/
 |   |   |-- silver_climate_hourly_history.sql
 |   |   |-- silver_climate_hourly.sql
+|   |   |-- silver_climate_hourly_dedup.sql
 |   |   |-- gold_daily_summary_history.sql
 |   |   |-- gold_daily_summary.sql
+|   |   |-- gold_daily_summary_dedup.sql
 |   |   `-- schema.yml
-|   |-- tests/unique_silver_city_record_time.sql
-|   `-- tests/unique_silver_history_bronze_record_time.sql
+|   |-- analyses/                      # uma query por tabela do TCC
+|   `-- tests/
+|       |-- unique_silver_city_record_time.sql
+|       |-- unique_silver_history_bronze_record_time.sql
+|       |-- rodada_com_168_horas.sql
+|       `-- coerencia_temperaturas_gold.sql
 |-- init-db/
 |   |-- 01_init_schemas.sql
 |   |-- 02_init_bronze_table.sql
-|   `-- 03_fix_permissions.sql
+|   |-- 03_fix_permissions.sql
+|   `-- 04_fix_bronze_timestamps.sql
 |-- docker-compose.yml
 |-- pyproject.toml
+|-- requirements.txt
 |-- uv.lock
+|-- LICENSE
 |-- .env.example
 `-- arquitetura.txt
 ```
@@ -81,10 +105,30 @@ tcc-clima/
 - Bronze (`public.bronze_climate_raw`): payload JSON bruto por cidade, com `ingestion_time` preservado.
 - Silver historico (`silver_climate_hourly_history`): dados horarios expandidos para cada rodada de ingestao, com rastreabilidade por `bronze_record_id` e `ingestion_time`.
 - Silver corrente (`silver_climate_hourly`): recorte da rodada mais recente por cidade.
+- Silver deduplicada (`silver_climate_hourly_dedup`): um registro por cidade e horario, o da rodada mais recente que o previu.
 - Gold historico (`gold_daily_summary_history`): agregacoes diarias por cidade e por rodada de ingestao.
 - Gold corrente (`gold_daily_summary`): agregacoes diarias da rodada mais recente por cidade.
+- Gold deduplicada (`gold_daily_summary_dedup`): uma previsao por cidade e por data-alvo, a da rodada mais recente que cobriu aquela data.
 
 > Observacao: no `dbt_project.yml`, os modelos em `models/example/` estao como `materialized: view`.
+
+### Qual camada usar para que
+
+| Finalidade | Modelo |
+|---|---|
+| Caracterizar o periodo meteorologico | `gold_daily_summary_dedup` / `silver_climate_hourly_dedup` |
+| Medir divergencia entre rodadas de previsao | `gold_daily_summary_history` |
+| Consumo operacional da previsao mais recente | `gold_daily_summary` |
+
+A camada `*_history` guarda uma linha por (cidade, rodada, data-alvo). Como cada rodada
+projeta 7 dias a frente e as rodadas se sucedem, uma mesma data do calendario aparece
+varias vezes. **Somar precipitacao ou evapotranspiracao sobre a camada historica nao
+produz o acumulado do periodo**, e sim a soma de previsoes repetidas para as mesmas datas.
+Para isso existem os modelos `*_dedup`.
+
+Ao recortar uma janela de coleta, filtre por `ingestion_time` **antes** de deduplicar. As
+macros `gold_dedup_janela` e `silver_dedup_janela` (`dbt/macros/janela_estudo.sql`) fazem
+nessa ordem.
 
 ## Configuracao de ambiente
 
@@ -116,6 +160,7 @@ Variaveis principais:
 - `NEON_DB_HOST`, `NEON_DB_PORT`, `NEON_DB_NAME`, `NEON_DB_USER`, `NEON_DB_PASS`
 - `OPEN_METEO_BASE_URL`, `OPEN_METEO_HOURLY_PARAMS`, `OPEN_METEO_TIMEOUT_SECONDS`, `OPEN_METEO_TIMEZONE`
   - recomendado para ET0: `temperature_2m,relative_humidity_2m,precipitation,dew_point_2m,shortwave_radiation,wind_speed_10m,vapour_pressure_deficit,et0_fao_evapotranspiration`
+- `OPEN_METEO_FORECAST_DAYS` (padrao 7): horizonte de previsao, 168 valores horarios por requisicao
 - `OPEN_METEO_CITIES_JSON`
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`
@@ -156,8 +201,10 @@ Quando as variaveis `NEON_DB_*` estiverem configuradas no ambiente do Airflow, a
 - `public.bronze_climate_raw`
 - `public.silver_climate_hourly_history`
 - `public.silver_climate_hourly`
+- `public.silver_climate_hourly_dedup`
 - `public.gold_daily_summary_history`
 - `public.gold_daily_summary`
+- `public.gold_daily_summary_dedup`
 
 Fluxo final:
 
@@ -215,26 +262,89 @@ select
   day,
   avg_temp,
   max_temp,
+  min_temp,
   total_precipitation,
   total_et0_fao_evapotranspiration
 from gold_daily_summary
 order by ingestion_time desc, day desc, city;
 ```
 
+Base deduplicada (uma previsao por cidade e data-alvo):
+
+```sql
+select city, day, lead_days, avg_temp, total_precipitation, total_et0_fao_evapotranspiration
+from gold_daily_summary_dedup
+order by city, day;
+```
+
 ## Qualidade de dados (dbt tests)
 
-- `not_null` em colunas criticas de historico e corrente (`city`, `day`, `record_time`, `ingestion_time`, `bronze_record_id`)
-- testes customizados de unicidade composta:
+Instale as dependencias de pacote antes da primeira execucao:
+
+```bash
+uv run dbt deps --project-dir dbt
+```
+
+A suite tem **102 testes** e cobre:
+
+- `not_null` nas chaves e em todas as colunas de medida, incluindo `min_temp`
+- `unique` composto nas chaves de cada camada (`dbt_utils.unique_combination_of_columns`)
+- faixas admissiveis por variavel (`dbt_utils.accepted_range`): temperatura -10 a 50 C,
+  umidade 0 a 100%, precipitacao nao negativa, ETo horaria 0 a 2 mm, VPD 0 a 10 kPa,
+  radiacao 0 a 1500 W/m2, vento 0 a 200 km/h, antecedencia 0 a 6 dias
+- integridade referencial de `silver_climate_hourly_history` para a fonte
+  `bronze_climate_raw`
+- unicidade composta customizada:
   - `dbt/tests/unique_silver_city_record_time.sql`
   - `dbt/tests/unique_silver_history_bronze_record_time.sql`
+- `dbt/tests/rodada_com_168_horas.sql`: toda rodada tem exatamente 168 registros horarios
+  e 7 datas-alvo. Pega qualquer mudanca no tamanho da resposta da API, que antes passaria
+  despercebida e alteraria em silencio todas as contagens por camada.
+- `dbt/tests/coerencia_temperaturas_gold.sql`: `max_temp >= avg_temp >= min_temp` nas tres
+  visoes gold
 
-## GitHub-friendly e reproducibilidade
+## Reprodutibilidade
 
+- Licenca MIT (`LICENSE`)
 - Segredos fora do codigo: `.env` (ignorado pelo git)
-- Template versionado: `.env.example`
-- Dependencias travadas com `uv.lock`
-- Artefatos de runtime ignorados no git:
-  - `.venv/`, `dbt/target/`, `dbt/logs/`, `logs/`
+- Templates versionados: `.env.example` e `dbt/profiles.yml.example`
+- Dependencias travadas com `uv.lock`; `requirements.txt` acompanha os mesmos pisos e
+  serve apenas ao Streamlit Cloud
+- Horizonte de previsao fixado em `forecast_days=7` na chamada a API, para que o tamanho
+  da resposta nao dependa do padrao vigente do servico
+- `healthcheck` no servico postgres, para o Airflow so subir com o banco pronto
+- `dbt/analyses/`: uma query por tabela apresentada no TCC, mais cadencia de ingestao,
+  cobertura temporal e metricas operacionais
+- `etl/validation/validate_against_era5.py`: validacao das previsoes contra a reanalise
+  ERA5
+- Artefatos de runtime ignorados no git: `.venv/`, `dbt/target/`, `dbt/logs/`, `logs/`
+
+### Primeira execucao a partir de um clone limpo
+
+```bash
+uv sync
+cp .env.example .env                          # preencha os valores
+mkdir -p ~/.dbt && cp dbt/profiles.yml.example ~/.dbt/profiles.yml
+docker compose up -d
+uv run dbt deps --project-dir dbt
+uv run dbt run  --project-dir dbt --target dev
+uv run dbt test --project-dir dbt --target dev
+```
+
+### Reproduzir os numeros do TCC
+
+```bash
+uv run dbt compile --project-dir dbt --target dev --select path:analyses
+```
+
+O SQL compilado sai em `dbt/target/compiled/clima/analyses/` e roda direto no PostgreSQL.
+Ver `dbt/analyses/README.md` para o indice das queries.
+
+Validacao contra a reanalise ERA5:
+
+```bash
+uv run python -m etl.validation.validate_against_era5
+```
 
 ## Troubleshooting rapido
 

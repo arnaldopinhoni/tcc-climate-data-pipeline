@@ -18,6 +18,7 @@ wheels/
 # dbt artifacts
 /dbt/target/
 /dbt/logs/
+/dbt/dbt_packages/
 
 # Runtime logs
 /logs/

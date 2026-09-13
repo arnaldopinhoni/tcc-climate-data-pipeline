@@ -1,0 +1,26 @@
+# Modelo do profile dbt deste projeto.
+#
+# O dbt procura profiles.yml em ~/.dbt/. Copie este arquivo para la e preencha:
+#
+#     mkdir -p ~/.dbt && cp dbt/profiles.yml.example ~/.dbt/profiles.yml
+#
+# Os valores devem bater com as variaveis DB_* do .env. No container do Airflow o
+# diretorio ~/.dbt do host e montado em /home/airflow/.dbt, entao o mesmo arquivo
+# serve para execucao local e orquestrada.
+#
+# Sem este arquivo um clone novo do repositorio nao consegue rodar dbt.
+
+clima:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost        # 'postgres' dentro da rede do Docker Compose
+      port: 5432
+      user: <db_user>        # igual a DB_USER do .env
+      password: <db_password>
+      dbname: clima          # igual a DB_NAME do .env
+      schema: public
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10

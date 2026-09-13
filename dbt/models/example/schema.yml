@@ -1,12 +1,43 @@
 version: 2
 
+sources:
+  - name: raw
+    schema: public
+    description: "Camada Bronze - respostas brutas da API Open-Meteo, sem transformacao semantica."
+    tables:
+      - name: bronze_climate_raw
+        description: "Uma linha por resposta da API: uma cidade em uma rodada de ingestao."
+        columns:
+          - name: id
+            description: "Identificador da rodada de ingestao por cidade. Propagado como bronze_record_id nas camadas seguintes."
+            tests:
+              - not_null
+              - unique
+          - name: city
+            tests:
+              - not_null
+          - name: raw_json
+            tests:
+              - not_null
+          - name: ingestion_time
+            tests:
+              - not_null
+
 models:
   - name: silver_climate_hourly_history
-    description: "Camada Silver historica - dados horarios preservados por rodada de ingestao, com rastreabilidade ate a Bronze."
+    description: >
+      Camada Silver historica - dados horarios preservados por rodada de ingestao, com
+      rastreabilidade ate a Bronze. Contem multiplas previsoes para o mesmo horario,
+      uma por rodada que o previu. Destina-se ao estudo da evolucao das previsoes; nao
+      deve ser usada para caracterizar o periodo meteorologico.
     columns:
       - name: bronze_record_id
         tests:
           - not_null
+          - relationships:
+              arguments:
+                to: source('raw', 'bronze_climate_raw')
+                field: id
       - name: city
         tests:
           - not_null
@@ -16,11 +47,74 @@ models:
       - name: record_time
         tests:
           - not_null
+      - name: temperature_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -10
+                max_value: 50
+      - name: relative_humidity_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
+      - name: dew_point_2m
+        description: "Ponto de orvalho a 2 m em graus Celsius."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -15
+                max_value: 35
+      - name: shortwave_radiation
+        description: "Radiacao solar de onda curta horaria em W/m2."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1500
+      - name: wind_speed_10m
+        description: "Velocidade do vento a 10 m em km/h."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
+      - name: vapour_pressure_deficit
+        description: "Deficit de pressao de vapor horario em kPa."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 10
       - name: et0_fao_evapotranspiration
         description: "Evapotranspiracao de referencia horaria disponibilizada pela Open-Meteo com base em FAO-56."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 2
 
   - name: silver_climate_hourly
     description: "Camada Silver corrente - recorte da rodada mais recente por cidade, derivado do historico."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [city, record_time]
     columns:
       - name: bronze_record_id
         tests:
@@ -34,19 +128,110 @@ models:
       - name: record_time
         tests:
           - not_null
+      - name: temperature_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -10
+                max_value: 50
+      - name: relative_humidity_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
       - name: dew_point_2m
         description: "Ponto de orvalho a 2 m em graus Celsius."
+        tests:
+          - not_null
       - name: shortwave_radiation
         description: "Radiacao solar de onda curta horaria em W/m2."
+        tests:
+          - not_null
       - name: wind_speed_10m
         description: "Velocidade do vento a 10 m em km/h."
+        tests:
+          - not_null
       - name: vapour_pressure_deficit
         description: "Deficit de pressao de vapor horario em kPa."
+        tests:
+          - not_null
       - name: et0_fao_evapotranspiration
         description: "Evapotranspiracao de referencia horaria calculada pela Open-Meteo com base em FAO-56."
+        tests:
+          - not_null
+
+  - name: silver_climate_hourly_dedup
+    description: >
+      Camada Silver deduplicada - um registro por cidade e por horario, o da rodada mais
+      recente que previu aquele horario. Base horaria para caracterizacao meteorologica
+      do periodo, incluindo umidade relativa, que nao e agregada na camada gold.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [city, record_time]
+    columns:
+      - name: bronze_record_id
+        tests:
+          - not_null
+      - name: city
+        tests:
+          - not_null
+      - name: record_time
+        tests:
+          - not_null
+      - name: lead_days
+        description: "Antecedencia em dias entre a rodada de ingestao e o horario previsto."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 6
+      - name: temperature_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -10
+                max_value: 50
+      - name: relative_humidity_2m
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 200
+      - name: et0_fao_evapotranspiration
+        tests:
+          - not_null
 
   - name: gold_daily_summary_history
-    description: "Camada Gold historica - agregacao diaria por cidade e por rodada de ingestao."
+    description: >
+      Camada Gold historica - agregacao diaria por cidade e por rodada de ingestao. Uma
+      mesma data-alvo aparece uma vez por rodada que a previu. Serve para medir a
+      divergencia entre rodadas; somar precipitacao ou evapotranspiracao sobre esta
+      camada nao produz acumulado meteorologico do periodo.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [city, bronze_record_id, day]
     columns:
       - name: city
         tests:
@@ -60,11 +245,49 @@ models:
       - name: day
         tests:
           - not_null
+      - name: avg_temp
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -10
+                max_value: 50
+      - name: max_temp
+        tests:
+          - not_null
+      - name: min_temp
+        description: "Temperatura minima diaria. Nono indicador da camada gold."
+        tests:
+          - not_null
+      - name: total_precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 500
+      - name: avg_vapour_pressure_deficit
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 10
       - name: total_et0_fao_evapotranspiration
         description: "Soma diaria da evapotranspiracao de referencia por cidade em cada rodada de ingestao."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 15
 
   - name: gold_daily_summary
     description: "Camada Gold corrente - agregacao diaria da rodada mais recente por cidade."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [city, day]
     columns:
       - name: city
         tests:
@@ -78,5 +301,89 @@ models:
       - name: day
         tests:
           - not_null
+      - name: avg_temp
+        tests:
+          - not_null
+      - name: max_temp
+        tests:
+          - not_null
+      - name: min_temp
+        tests:
+          - not_null
+      - name: total_precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 500
       - name: total_et0_fao_evapotranspiration
         description: "Soma diaria da evapotranspiracao de referencia por cidade."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 15
+
+  - name: gold_daily_summary_dedup
+    description: >
+      Camada Gold deduplicada - uma previsao por cidade e por data-alvo, a da rodada mais
+      recente que cobriu aquela data. E a base correta para caracterizacao meteorologica
+      do periodo e para validacao contra dados de referencia.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [city, day]
+    columns:
+      - name: city
+        tests:
+          - not_null
+      - name: bronze_record_id
+        tests:
+          - not_null
+      - name: day
+        tests:
+          - not_null
+      - name: lead_days
+        description: "Antecedencia em dias entre a rodada escolhida e a data-alvo."
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 6
+      - name: avg_temp
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -10
+                max_value: 50
+      - name: max_temp
+        tests:
+          - not_null
+      - name: min_temp
+        tests:
+          - not_null
+      - name: total_precipitation
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 500
+      - name: avg_vapour_pressure_deficit
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 10
+      - name: total_et0_fao_evapotranspiration
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 15

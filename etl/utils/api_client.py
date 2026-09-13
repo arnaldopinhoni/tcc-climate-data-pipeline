@@ -17,6 +17,12 @@ ET0_REQUIRED_HOURLY_PARAMS = (
     "et0_fao_evapotranspiration",
 )
 
+# Horizonte de previsao em dias. Ate entao a requisicao nao enviava este parametro e o
+# horizonte era o padrao implicito do endpoint /v1/forecast. Fixar o valor torna a
+# resposta reprodutivel: se a Open-Meteo mudar o padrao, as contagens por camada nao
+# mudam em silencio. O teste dbt rodada_com_168_horas assegura o mesmo do lado do banco.
+DEFAULT_FORECAST_DAYS = 7
+
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
@@ -48,6 +54,7 @@ def get_open_meteo(lat: float, lon: float) -> dict:
     hourly_params = _build_hourly_params(_require_env("OPEN_METEO_HOURLY_PARAMS"))
     timezone = _require_env("OPEN_METEO_TIMEZONE")
     timeout_seconds = int(_require_env("OPEN_METEO_TIMEOUT_SECONDS"))
+    forecast_days = int(os.getenv("OPEN_METEO_FORECAST_DAYS") or DEFAULT_FORECAST_DAYS)
 
     response = requests.get(
         base_url,
@@ -56,6 +63,7 @@ def get_open_meteo(lat: float, lon: float) -> dict:
             "longitude": lon,
             "hourly": hourly_params,
             "timezone": timezone,
+            "forecast_days": forecast_days,
         },
         timeout=timeout_seconds,
     )
